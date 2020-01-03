@@ -1,0 +1,404 @@
+---
+title: "RNA-seq"
+author: "Lin"
+date: "12/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+## read original data.csv
+```{r}
+MyData <- read.csv(file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_data.csv", header=TRUE, sep=",",row.names=NULL) # row.names = 1
+```
+
+## convert ID
+```{r}
+require("biomaRt")
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(
+     mart=mart,
+     attributes=c("ensembl_gene_id", "gene_biotype", "external_gene_name"),
+     filter="ensembl_gene_id",
+     values=MyData$ensgene,
+     uniqueRows=TRUE)
+data <- data.frame(MyData[match(annotLookup$ensembl_gene_id, MyData$ensgene),],annotLookup$external_gene_name)
+write.csv(data,"/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_data_v1.csv")
+```
+
+## Input real data
+```{r}
+MyData <- read.csv(file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_data_v1.csv", header=TRUE, fill=T,sep=",",row.names=NULL) 
+```
+
+## remove duplicate row
+```{r}
+library(dplyr)
+Mydata1 = filter(MyData,ensgene != "5_8S_rRNA" & ensgene !="5S_rRNA" & ensgene !="7SK" & ensgene != "ALG1L9P" & ensgene != "BMS1P4" & ensgene != "CYB561D2" & ensgene != "DUXAP8" & ensgene != "GOLGA8M" & ensgene != "ITFG2-AS1" & ensgene != "LINC01238" & ensgene != "LINC01505" & ensgene !="Mar-01" & ensgene != "Mar-02" & ensgene != "MATR3" & ensgene !="Metazoa_SRP" & ensgene != "PINX1" & ensgene != "POLR2J4" & ensgene !="RMRP" & ensgene != "SCARNA4" & ensgene != "SFTA3" & ensgene !="SNORA16A" & ensgene != "SNORA17B" & ensgene != "SNORA50A" & ensgene != "SNORA62" & ensgene != "SNORA63" & ensgene != "SNORA70" & ensgene !="SNORA71" & ensgene != "SNORA72" & ensgene != "SNORA73" & ensgene != "SNORA74" & ensgene != "SNORA75" & ensgene != "SNORD115" & ensgene !="SNORD116" & ensgene != "SNORD18" & ensgene != "SNORD22" & ensgene !="SNORD27" & ensgene != "SNORD30" & ensgene != "SNORD33" & ensgene != "SNORD38B" & ensgene != "SNORD39" & ensgene != "SNORD3D" & ensgene != "SNORD42" & ensgene != "SNORD63" & ensgene != "SNORD81"& ensgene != "TMSB15B" & ensgene != "U1" & ensgene != "U2" & ensgene !="U3" & ensgene != "U4" & ensgene != "U6" & ensgene != "U7" & ensgene != "U8" & ensgene !="Vault" & ensgene != "Y_RNA" )
+```
+
+# Rebuild real data
+```{r}
+rownames(Mydata1) <- Mydata1$ensgene
+Mydata1 = Mydata1[,-1]
+```
+
+## Set the ggplot main theme
+```{r}
+library(ggplot2)
+main_theme = theme( #panel.background = element_blank(),
+                    #panel.grid = element_blank(),
+                    #axis.line.x = element_line(size = .5, colour = "black"),
+                    #axis.line.y = element_line(size= .5, colour = "black"),
+                    axis.title.x = element_text(size = 14, color = "black", hjust = 0.5),
+                    axis.title.y = element_text(size = 14,color = "black", hjust = 0.5),
+                    axis.ticks = element_line(color = "black"),
+                    axis.text = element_text(color = "black", size = 12),
+                    plot.title = element_text(hjust = 0.5, size = 15),
+                    legend.position = "right", # 'none':remove legend
+                    legend.background = element_blank(),
+                    legend.key = element_blank(),
+                    legend.text = element_text(size = 12),
+                    text = element_text(family = "sans", size = 15)
+                  )
+```
+
+## Summary data
+```{r}
+library(dplyr)
+meancounts <- Mydata1 %>% 
+    mutate(pt = (pt1 + pt2 + pt3 + pt4 + pt5 + pt6)/6) %>% 
+    mutate(ctc = (ctc1 + ctc2 + ctc3 + ctc4 + ctc5 + ctc6 + ctc7 + ctc8)/8)  %>% select(ctc,pt)
+
+meancounts %>% summarize(sum(ctc), sum(pt))
+
+meantotalcounts <- data.frame(
+    value <- c(sum(meancounts$ctc),sum(meancounts$pt)),
+    group <- c('CTC','PT')
+)
+
+# plot bar plot
+ggplot(meantotalcounts,aes(group,value)) +
+geom_bar(aes(fill = group), stat = "identity", position = "dodge", width = 0.8) +
+xlab('') +
+ylab('') +
+labs(title = "A  Mean Count of Each Group") +
+main_theme
+
+# plot point plot
+ggplot(meancounts, aes(pt, ctc)) + geom_point() + scale_x_log10() + scale_y_log10() + 
+xlab('PT') + ylab('CTC') + labs(title = "B  CTC mean VS PT mean") + main_theme
+```
+
+## PCA analysis for all data
+```{r}
+library(ggbiplot)
+library(factoextra)
+
+# compute pca
+all.pca <- prcomp(t(Mydata1[apply(Mydata1, 1, var)!= 0,]), scale. = TRUE)
+all.class <- factor(rep(c("CTC", "PT"), c(8, 6)))
+
+# visualize eigenvalues
+fviz_eig(all.pca) + ggtitle('A  Scree Plot') + main_theme
+
+# plot pca: method 1
+fviz_pca_ind(all.pca,
+             col.ind = all.class, 
+             repel = TRUE,
+             legend.title = "Groups"
+             ) + 
+    ggtitle('A  PCA') + 
+    main_theme
+
+# plot pca: method 2
+ggbiplot(all.pca, obs.scale = 1, var.scale = 1,
+    groups = all.class, var.axes= 0) +
+    scale_color_discrete(name = '') +
+    theme(legend.direction = 'horizontal', legend.position = 'top') + 
+    ggtitle('PCA') + 
+    main_theme
+```
+
+## Build a colData object
+```{r}
+coldata <- data.frame(condition=c(rep("CTC",8), rep("PT",6)),
+                      row.names=colnames(Mydata1))
+```
+
+## Install DESeq2
+```{r, echo=FALSE}
+##    install.packages("BiocManager")
+##    BiocManager::install("DESeq2")
+library(DESeq2)
+
+dds <- DESeqDataSetFromMatrix(countData = Mydata1,
+                              colData = coldata,
+                              design = ~ condition)
+
+# add potential features
+featureData <- data.frame(gene=rownames(Mydata1))
+mcols(dds) <- DataFrame(mcols(dds), featureData)
+mcols(dds)
+
+# specify reference condition
+dds$condition <- relevel(dds$condition, ref = "PT")
+
+# prefiltering out of lowly expressed genes
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+```
+
+## DESeq data analysis
+```{r}
+dds <- DESeq(dds)
+dds1 <- dds
+res <- results(dds)
+```
+
+## count DEGs
+```{r}
+sum(res$padj < 0.05 & abs(res$log2FoldChange) > 1, na.rm=TRUE)
+```
+
+## Output DEGs
+```{r}
+res$padj[is.na(res$padj)] <- 1
+
+# select those genes with padj < 0.05 and with a abs of log2FoldChane > 1
+DEGs <- res[res$padj < 0.05 & abs(res$log2FoldChange) > 1,]
+#write.csv(DEGs,file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/DEGs.csv")
+```
+
+## Heatmap analysis for the DEGs
+```{r}
+library(pheatmap)
+annotation_col = data.frame(
+    CellType = factor(rep(c("CTC", "PT"), c(8, 6))))
+rownames(annotation_col) = c(paste("ctc", 1:8, sep = ""),paste("pt", 1:6, sep = ""))
+
+# heatmap with log(RPKM + 1)
+pheatmap(log(Mydata1[rownames(Test_DEGs),]+1), scale = "row", cluster_col  = FALSE, annotation_col = annotation_col, main
+ = 'A Heatmap') 
+```
+
+## Make MA plot and Volcano plot
+```{r}
+res1 <- tbl_df(res)
+res1 <- res1 %>% mutate(significant = padj < 0.05)
+row.names(res1) <- row.names(res)
+
+# plot MA plot
+res1 %>% ggplot(aes(baseMean, log2FoldChange, col = significant)) + geom_point() + scale_x_log10() + ggtitle("MA Plot") + main_theme
+
+# method 1: plot Volcano plot
+res1 %>% ggplot(aes(log2FoldChange, -1*log10(padj), col = significant)) + geom_point() +
+    geom_vline(xintercept = c(-1,1), color = 'blue', linetype = 2, size = 1) + 
+    geom_hline(yintercept = -log10(0.05), color = 'blue', linetype = 2, size = 1) + 
+    ggtitle("Volcano Plot") + 
+    main_theme
+
+# method 2: plot Volcano plot
+res1[which(res1$padj < 0.05 & res1$log2FoldChange >= 1 ),'diff'] <- 'up'
+res1[which(res1$padj < 0.05 & res1$log2FoldChange <= -1),'diff'] <- 'dowm'
+res1[!(res1$diff %in% c('up', 'dowm')),'diff'] <- 'no'
+ 
+res1 %>% ggplot(aes(x = log2FoldChange, y = -log10(padj))) +
+    geom_point(aes(color = diff), size = 1) +
+    scale_colour_manual(limits = c('up', 'dowm', 'no'), values = c('blue', 'red', 'gray40'), labels = c('Upregulated Genes','Downregulated OTUs', 'No diff Genes')) +
+    geom_vline(xintercept = c(-1,1), color = 'black', linetype = 2, size = 1) + 
+    geom_hline(yintercept = -log10(0.05), color = 'black', linetype = 2, size = 1) + 
+    labs(x = 'log2 Fold Change', y = '-log10 FDR p-value') + 
+    ggtitle("B  Volcano Plot") + 
+    main_theme
+
+```
+
+## plot sepecial gene
+```{r}
+# method 1: plotCounts
+plotCounts(dds1, gene="HBB") 
+
+# method 2: ggplot
+all_genes <- as.data.frame(t(Mydata1))
+HBB <- data.frame(
+    log10count = log10(all_genes$HBB),
+    CellType = factor(rep(c("CTC", "PT"), c(8, 6)))
+)
+ggplot(HBB,aes(CellType, log10count, colour = CellType)) +
+   geom_boxplot(aes(fill = CellType), alpha = 0.2,
+               outlier.colour = "red",
+               outlier.shape = 2,
+               outlier.size = 5,
+               coef = 1.5) + 
+    ggtitle("C  HBB") + 
+    main_theme
+```
+
+## PCA analysis for DGEs
+```{r}
+# method 1:
+# pca
+degs.pca <- prcomp(t(Mydata1[rownames(DEGs),]), scale. = TRUE)
+degs.class <- factor(rep(c("CTC", "PT"), c(8, 6)))
+
+# pca plot
+library(ggbiplot)
+ggbiplot(degs.pca, obs.scale = 1, var.scale = 1,
+    groups = degs.class, var.axes= 0) +
+    scale_color_discrete(name = '') +
+    theme(legend.direction = 'horizontal', legend.position = 'top') + ggtitle('PCA for DGEs') + main_theme
+
+# method 2:
+#rld <- rlogTransformation(dds)
+#plotPCA(rld)
+```
+
+## hclust
+```{r}
+library(cluster)  
+library(factoextra)
+library(NbClust)
+dis <- dist(t(Mydata1[rownames(DEGs),]), method = "euclidean")
+dis_hc <- hclust(d = dis, method = "complete")
+fviz_dend(dis_hc, cex = 0.6)
+fviz_dend(dis_hc, cex = 0.6)
+fviz_dend(dis_hc, k = 2, 
+          cex = 0.5, 
+          k_colors = c("#2E9FDF", "#00AFBB"),
+          color_labels_by_k = TRUE, 
+          rect = TRUE,          
+          hang = -1)
+```
+
+## Use HTSanalyzeR to do functional analysis
+```{r}
+library(HTSanalyzeR2)
+library(org.Hs.eg.db)
+# define the gene set collections
+GO_MF <- GOGeneSets(species = "Hs", ontologies = c("MF"))
+GO_BP <- GOGeneSets(species = "Hs", ontologies = c("BP"))
+PW_KEGG <- KeggGeneSets(species = "Hs")
+Msig_c5 <- MSigDBGeneSets(collection = "C5", species = "Hs")
+
+ListGSC <- list(GO_MF = GO_MF, GO_BP = GO_BP, PW_KEGG = PW_KEGG, Msig_c5 = Msig_c5)
+
+# use log2 fold changes as phenotype for GSEA
+data4enrich <- res$log2FoldChange
+names(data4enrich) <- rownames(res)
+
+# select upregulated genes for GSOA
+hits <- rownames(res)[which(res$padj < 0.05 & res$log2FoldChange > 1)]
+
+# initiate an object of GSCA
+gsca <- GSCA(listOfGeneSetCollections = ListGSC, geneList = data4enrich, hits = hits)
+
+# preprocessing
+gsca <- preprocess(gsca, species = "Hs", initialIDs = "SYMBOL", keepMultipleMappings = TRUE, duplicateRemoverMethod = "max", orderAbsValue = FALSE)
+```
+
+## Perform gsca analysis
+```{r}
+gsca <- analyze(gsca, para=list(pValueCutoff = 0.05, pAdjustMethod = "BH", 
+                                nPermutations = 10, minGeneSetSize = 50, exponent                                 = 1), doGSOA = TRUE, doGSEA = TRUE)
+```
+
+## Annotate the gene sets ID to make the results more understandable
+```{r}
+gsca <- appendGSTerms(gsca, goGSCs=c("GO_BP", "GO_MF"), keggGSCs=c("PW_KEGG"), 
+                      msigdbGSCs=c("Msig_c5"))
+```
+
+## Get the top 5 significant results
+```{r}
+# hypergeometric test result using MF gene sets from GO
+head(getResult(gsca)$HyperGeo.results$GO_MF, 5)
+
+# hypergeometric test result using BP gene sets from GO
+head(getResult(gsca)$HyperGeo.results$GO_BP, 5)
+
+# GSEA result using KEGG gene sets
+head(getResult(gsca)$GSEA.results$PW_KEGG, 5)
+
+# GSEA result using KEGG gene sets
+head(getResult(gsca)$GSEA.results$Msig_c5, 5)
+
+# result both significant regarding to adjust pvalues in hypergeometric test and GSEA using 'c5' gene sets from MSigDB
+head(getResult(gsca)$Sig.adj.pvals.in.both$Msig_c5, 5)
+```
+
+## Better view the GSEA result for a single gene set
+```{r}
+topGS <- getTopGeneSets(gsca, resultName="GSEA.results",
+                        gscs=c("Msig_c5"), ntop = 100)
+#topGS
+viewGSEA(gsca, gscName="Msig_c5", gsName=topGS[["Msig_c5"]][86])
+```
+
+## View enrichment map of GO and GSEA result 
+```{r}
+viewEnrichMap(gsca, resultName = "HyperGeo.results",
+              gscs=c("PW_KEGG", "GO_MF"),
+              allSig = FALSE, gsNameType = "term", ntop = 5)
+viewEnrichMap(gsca, resultName = "GSEA.results",
+              gscs=c("Msig_c5"),
+              allSig = FALSE, gsNameType = "term", ntop = 5)
+```
+
+## Enrichment Map with specific gene sets
+```{r}
+topGS <- getTopGeneSets(gsca, resultName="GSEA.results",
+                        gscs=c("Msig_c5"), ntop = 500)
+
+# define specificGeneset 
+Msig_geneset <- topGS$Msig_c5[c(c(seq(1,5)),c(61,149,285,357,422))]
+
+# match the names with the geneset
+specificGeneset <- list("Msig_c5" = Msig_geneset)
+viewEnrichMap(gsca, resultName = "GSEA.results", gscs=c("Msig_c5"),
+              allSig = FALSE, gsNameType = "term",
+              ntop = NULL, specificGeneset = specificGeneset)
+```
+
+## Enriched subnetwork analysis
+```{r}
+pv <- res$pvalue
+names(pv) <- rownames(res)
+nwa <- NWA(pvalues = pv, phenotypes = data4enrich)
+nwa1 <- preprocess(nwa, species = "Hs", initialIDs = "SYMBOL",
+                   keepMultipleMappings = TRUE, duplicateRemoverMethod = "max")
+```
+
+## Creating interactome 
+```{r}
+nwa2 <- interactome(nwa1, species = "Hs", link = "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-3.4.162/BIOGRID-ORGANISM-3.4.162.tab2.zip", genetic = FALSE, force = FALSE)
+```
+
+## Performe subnetwork analysis
+```{r}
+nwa3 <- analyze(nwa2, fdr = 8e-02, species="Hs")
+```
+
+## View subnetwork
+```{r}
+viewSubNet(nwa3)
+```
+
+```{r}
+report(gsca)
+```
+
+```{r}
+save(gsca, file = "/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/Galaxy.RData")
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

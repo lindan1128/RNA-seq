@@ -1,0 +1,334 @@
+---
+title: "RNA-seq_for validation"
+author: "Lin"
+date: "12/6/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+Test_Data <- read.csv(file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_test_data.csv", header=TRUE, sep=",",row.names=NULL) # row.names = 1
+```
+
+
+```{r}
+require("biomaRt")
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(
+     mart=mart,
+     attributes=c("ensembl_gene_id", "gene_biotype", "external_gene_name"),
+     filter="ensembl_gene_id",
+     values=Test_Data$ensgene,
+     uniqueRows=TRUE)
+data <- data.frame(Test_Data[match(annotLookup$ensembl_gene_id, Test_Data$ensgene),],annotLookup$external_gene_name)
+write.csv(data,"/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_test_data_v1.csv")
+```
+
+## input real data
+```{r}
+Test_Data <- read.csv(file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/ctc_vs_pt_test_data_v1.csv", header=TRUE, fill=T,sep=",",row.names=NULL) 
+```
+
+## remove duplicate row
+```{r}
+library(dplyr)
+Test_data1 = filter(Test_Data,ensgene !="5_8S_rRNA" & ensgene !="5S_rRNA" & ensgene !="7SK" & ensgene != "ALG1L9P" & ensgene != "BMS1P4" & ensgene != "CYB561D2" & ensgene != "DUXAP8" & ensgene != "GOLGA8M" & ensgene != "ITFG2-AS1" & ensgene != "LINC01238" & ensgene != "LINC01505" & ensgene !="Mar-01" & ensgene != "Mar-02" & ensgene != "MATR3" & ensgene !="Metazoa_SRP" & ensgene != "PINX1" & ensgene != "POLR2J4" & ensgene !="RMRP" & ensgene != "SCARNA4" & ensgene != "SFTA3" & ensgene !="SNORA16A" & ensgene != "SNORA17B" & ensgene != "SNORA50A" & ensgene != "SNORA62" & ensgene != "SNORA63" & ensgene != "SNORA70" & ensgene !="SNORA71" & ensgene != "SNORA72" & ensgene != "SNORA73" & ensgene != "SNORA74" & ensgene != "SNORA75" & ensgene != "SNORD115" & ensgene !="SNORD116" & ensgene != "SNORD18" & ensgene != "SNORD22" & ensgene !="SNORD27" & ensgene != "SNORD30" & ensgene != "SNORD33" & ensgene != "SNORD38B" & ensgene != "SNORD39" & ensgene != "SNORD3D" & ensgene != "SNORD42" & ensgene != "SNORD63" & ensgene != "SNORD81"& ensgene != "TMSB15B" & ensgene != "U1" & ensgene != "U2" & ensgene !="U3" & ensgene != "U4" & ensgene != "U6" & ensgene != "U7" & ensgene != "U8" & ensgene !="Vault" & ensgene != "Y_RNA" )
+```
+
+## rebuild real data
+```{r}
+rownames(Test_data1) <- Test_data1$ensgene
+Test_data1 <- Test_data1[,-1]
+```
+
+## Summary data
+```{r}
+library(dplyr)
+library(ggplot2)
+Test_meancounts <- Test_data1 %>% 
+    mutate(Test_pt = pt7 + pt8 + pt9 + pt10 + pt11 + pt12) %>% 
+    mutate(Test_ctc = ctc9 + ctc10 + ctc11 + ctc12 + ctc13 + ctc14 + ctc15 + ctc16)  %>% select(Test_ctc,Test_pt)
+
+Test_meancounts %>% summarize(sum(Test_ctc), sum(Test_pt))
+
+Test_meantotalcounts <- data.frame(
+    value <- c(sum(Test_meancounts$Test_ctc),sum(Test_meancounts$Test_pt)),
+    group <- c('CTC','PT')
+)
+
+# plot bar plot
+ggplot(Test_meantotalcounts,aes(group,value)) +
+geom_bar(aes(fill = group), stat = "identity", position = "dodge", width = 0.8) +
+xlab('') +
+ylab('') +
+labs(title = "Mean Count of Each Group") +
+main_theme
+
+# plot point plot
+ggplot(Test_meancounts, aes(Test_ctc, Test_pt)) + geom_point() + scale_x_log10() + scale_y_log10() + xlab('CTC') + ylab('PT') + labs(title = "PT mean VS CTC mean") + main_theme
+```
+
+## Build a colData object
+```{r}
+Test_coldata <- data.frame(condition = c(rep("CTC",8), rep("PT",6)),
+                           row.names = colnames(Test_data1))
+```
+
+## Install DESeq2
+```{r, echo=FALSE}
+##    install.packages("BiocManager")
+##    BiocManager::install("DESeq2")
+library(DESeq2)
+
+Test_dds <- DESeqDataSetFromMatrix(countData = Test_data1,
+                              colData = Test_coldata,
+                              design = ~ condition)
+
+# add potential features
+Test_featureData <- data.frame(gene = rownames(Test_data1))
+mcols(Test_dds) <- DataFrame(mcols(Test_dds), Test_featureData)
+mcols(Test_dds)
+
+# specify reference condition
+Test_dds$condition <- relevel(Test_dds$condition, ref = "PT")
+
+# prefiltering out of lowly expressed genes
+Test_keep <- rowSums(counts(Test_dds)) >= 10
+Test_dds <- Test_dds[Test_keep,]
+```
+
+## DESeq data analysis
+```{r}
+Test_dds <- DESeq(Test_dds)
+Test_dds1 <- Test_dds
+#plotCounts(Test_dds1, gene="ESR2") 
+
+Test_res <- results(Test_dds)
+```
+
+## count DEGs
+```{r}
+sum(Test_res$padj < 0.05 & abs(Test_res$log2FoldChange) > 1, na.rm=TRUE)
+```
+
+## Output DEGs
+```{r}
+Test_res$padj[is.na(Test_res$padj)] <- 1
+
+# select those genes with padj < 0.05 and with a abs of log2FoldChane > 1
+Test_DEGs <- Test_res[Test_res$padj < 0.05 & abs(Test_res$log2FoldChange) > 1,]
+#write.csv(Test_DEGs,file="/Users/lindan/Dropbox/PhD/Course/Genomics\ and\ Bioinformatics/Final\ Project/Test_DEGs.csv")
+```
+
+## Heatmap analysis for the DEGs
+```{r}
+library(pheatmap)
+annotation_col = data.frame(
+    CellType = factor(rep(c("CTC", "PT"), c(8, 6))))
+    rownames(annotation_col) = c(paste("ctc", 9:16, sep = ""), paste("pt", 7:12, sep = ""))
+
+# heatmap with log(RPKM + 1)
+pheatmap(log(Test_data1[rownames(Test_DEGs),] + 1), scale = "row", cluster_col  = FALSE, annotation_col = annotation_col, main
+ = 'Heatmap (validation set)')  
+```
+
+## Make MA plot and Volcano plot
+```{r}
+Test_res1 <- tbl_df(Test_res)
+Test_res1 <- Test_res1 %>% mutate(significant = padj < 0.05)
+row.names(Test_res1) <- row.names(Test_res)
+
+# plot MA plot
+Test_res1 %>% ggplot(aes(baseMean, log2FoldChange, col = significant)) + geom_point() + scale_x_log10() + ggtitle("MA Plot") + main_theme
+
+# plot Volcano plot
+Test_res1[which(Test_res1$padj < 0.05 & Test_res1$log2FoldChange >= 1 ),'diff'] <- 'up'
+Test_res1[which(Test_res1$padj < 0.05 & Test_res1$log2FoldChange <= -1),'diff'] <- 'dowm'
+Test_res1[!(Test_res1$diff %in% c('up', 'dowm')),'diff'] <- 'no'
+ 
+Test_res1 %>% ggplot(aes(x = log2FoldChange, y = -log10(padj))) +
+    geom_point(aes(color = diff), size = 1) +
+    scale_colour_manual(limits = c('up', 'dowm', 'no'), values = c('blue', 'red', 'gray40'), labels = c('Upregulated Genes','Downregulated OTUs', 'No diff Genes')) +
+    geom_vline(xintercept = c(-1,1), color = 'black', linetype = 2, size = 1) + 
+    geom_hline(yintercept = -log10(0.05), color = 'black', linetype = 2, size = 1) + 
+    labs(x = 'log2 Fold Change', y = '-log10 FDR p-value') + 
+    ggtitle("Volcano Plot (validation set)") + 
+    main_theme
+```
+
+## plot sepecial gene
+```{r}
+plotCounts(Test_dds1, gene="HBB") 
+
+Test_all_genes <- as.data.frame(t(Test_data1))
+Test_HBB <- data.frame(
+    log10count = log10(Test_all_genes$HBB),
+    CellType = factor(rep(c("CTC", "PT"), c(8, 6)))
+)
+ggplot(Test_HBB,aes(CellType, log10count, colour = CellType)) +
+   geom_boxplot(aes(fill = CellType), alpha = 0.2,
+               outlier.colour = "red",
+               outlier.shape = 2,
+               outlier.size = 5,
+               coef = 1.5) + 
+    ggtitle("HBB (validation set)") + 
+    main_theme
+```
+
+## PCA analysis for DGEs
+```{r}
+# pca
+Test_degs.pca <- prcomp(t(Test_data1[rownames(Test_DEGs),]), scale. = TRUE)
+Test_degs.class <- factor(rep(c("CTC", "PT"), c(8, 6)))
+
+# visualize eigenvalues
+fviz_eig(Test_degs.pca) + ggtitle('A  Scree Plot') + main_theme
+
+# plot pca: method 1
+fviz_pca_ind(Test_degs.pca,
+             col.ind = Test_degs.class, 
+             repel = TRUE,
+             legend.title = "Groups"
+             ) + 
+    ggtitle('PCA (validation set)') + 
+    main_theme
+
+# pca plot
+library(ggbiplot)
+ggbiplot(Test_degs.pca, obs.scale = 1, var.scale = 1,
+    groups = Test_degs.class, var.axes= 0) +
+    scale_color_discrete(name = '') +
+    theme(legend.direction = 'horizontal', legend.position = 'top') + ggtitle('PCA (validation set)') + main_theme
+```
+
+## Use HTSanalyzeR to do functional analysis
+```{r}
+library(HTSanalyzeR2)
+library(org.Hs.eg.db)
+```
+
+```{r}
+# define the gene set collections
+GO_MF <- GOGeneSets(species = "Hs", ontologies = c("MF"))
+GO_BP <- GOGeneSets(species = "Hs", ontologies = c("BP"))
+PW_KEGG <- KeggGeneSets(species = "Hs")
+Msig_c5 <- MSigDBGeneSets(collection = "C5", species = "Hs")
+
+ListGSC <- list(GO_MF = GO_MF, GO_BP = GO_BP, PW_KEGG = PW_KEGG, Msig_c5 = Msig_c5)
+
+# se log2 fold changes as phenotype for GSEA
+Test_data4enrich <- Test_res$log2FoldChange
+names(Test_data4enrich) <- rownames(Test_res)
+
+# select upregulated genes for GSOA
+Test_hits <- rownames(Test_res)[which(Test_res$padj < 0.05 & Test_res$log2FoldChange > 1)]
+
+# initiate an object of GSCA
+Test_gsca <- GSCA(listOfGeneSetCollections = ListGSC, geneList = Test_data4enrich, hits = hits)
+
+# preprocessing
+Test_gsca <- preprocess(Test_gsca, species = "Hs", initialIDs = "SYMBOL", keepMultipleMappings = TRUE, duplicateRemoverMethod = "max", orderAbsValue = FALSE)
+```
+
+## Perform gsca analysis
+```{r}
+Test_gsca <- analyze(Test_gsca, para = list(pValueCutoff = 0.05, pAdjustMethod ="BH", nPermutations = 10, minGeneSetSize = 50, exponent = 1), doGSOA = TRUE, doGSEA =TRUE)
+```
+
+## Annotate the gene sets ID to make the results more understandable
+```{r}
+Test_gsca <- appendGSTerms(Test_gsca, goGSCs=c("GO_BP", "GO_MF"),            
+                           keggGSCs=c("PW_KEGG"), msigdbGSCs=c("Msig_c5"))
+```
+
+## Get the top 5 significant results
+```{r}
+##  hypergeometric test result using MF gene sets from GO
+head(getResult(Test_gsca)$HyperGeo.results$GO_MF, 5)
+
+##  hypergeometric test result using BP gene sets from GO
+head(getResult(Test_gsca)$HyperGeo.results$GO_BP, 5)
+
+##  GSEA result using KEGG gene sets
+head(getResult(Test_gsca)$GSEA.results$PW_KEGG, 5)
+
+## result both significant regarding to adjust pvalues in hypergeometric test and GSEA using 'c2' gene sets from MSigDB
+head(getResult(Test_gsca)$Sig.adj.pvals.in.both$Msig_c5, 5)
+```
+
+## better view the GSEA result for a single gene set
+```{r}
+Test_topGS <- getTopGeneSets(Test_gsca, resultName="GSEA.results",
+                        gscs=c("Msig_c5"), allSig=TRUE)
+Test_topGS
+viewGSEA(Test_gsca, gscName="Msig_c5", gsName=Test_topGS[["Msig_c5"]][15])
+```
+
+## Enrichment Map with specific gene sets
+```{r}
+Test_topGS <- getTopGeneSets(Test_gsca, resultName="GSEA.results",
+                        gscs=c("Msig_c5"), ntop = 200)
+
+# define specificGeneset 
+Test_Msig_geneset <- Test_topGS$Msig_c5[c(seq(1,7),c(15,59,110))]
+
+# match the names with the geneset
+Test_specificGeneset <- list("Msig_c5" = Test_Msig_geneset)
+viewEnrichMap(Test_gsca, resultName = "GSEA.results", gscs=c("Msig_c5"),
+              allSig = FALSE, gsNameType = "term",
+              ntop = NULL, specificGeneset = Test_specificGeneset)
+```
+
+## Enriched subnetwork analysis
+```{r}
+Test_pv <- Test_res$pvalue
+names(Test_pv) <- rownames(Test_res)
+Test_nwa <- NWA(pvalues = Test_pv, phenotypes = Test_data4enrich)
+Test_nwa1 <- preprocess(Test_nwa, species = "Hs", initialIDs = "SYMBOL",
+                   keepMultipleMappings = TRUE, duplicateRemoverMethod = "max")
+```
+
+## Creating interactome 
+```{r}
+Test_nwa2 <- interactome(Test_nwa1, species = "Hs", link = "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-3.4.162/BIOGRID-ORGANISM-3.4.162.tab2.zip", genetic = FALSE, force = FALSE)
+```
+
+## Performe subnetwork analysis
+```{r}
+Test_nwa3 <- analyze(Test_nwa2, fdr = 2e-01, species="Hs")
+```
+
+## View subnetwork
+```{r}
+viewSubNet(Test_nwa3)
+```
+
+## view enrichment map of GO and GSEA result 
+```{r}
+viewEnrichMap(Test_gsca, resultName = "HyperGeo.results",
+              gscs=c("PW_KEGG", "GO_MF"),
+              allSig = FALSE, gsNameType = "term", ntop = 5)
+```
+
+```{r}
+viewEnrichMap(Test_gsca, resultName = "GSEA.results",
+              gscs=c("PW_KEGG", "GO_MF"),
+              allSig = FALSE, gsNameType = "term", ntop = 10)
+```
+
+
+```{r}
+report(Test_gsca)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
